@@ -91,7 +91,7 @@ def main(gitlab_url = None, gitlab_secret = None, project = None, since = None, 
             # resolve milestone
             milestone = None, 'None'
             if i.milestone is not None:
-                milestone = i.milestone.iid, i.milestone.title
+                milestone = i.milestone['iid'], i.milestone['title']
             if not milestone[0] in milestone_names:
                 milestone_names[milestone[0]] = milestone[1]
             if milestone[0] not in milestone_start or open_time < milestone_start[milestone[0]]:
