@@ -119,12 +119,13 @@ def plot_data(df, freq='D'):
     plt.figure()
 
     due_date = get_due_date(df)
-    plt.plot([min(t), due_date], [0, opened_cum[-1]], '--', color='0.8')
+    plt.plot([min(t), due_date], [0, opened_cum[-1]], '--', color='0.5')
 
-    plt.plot(t, opened_cum, 'o-')
-    plt.fill_between(t, np.cumsum(closed), 'o-')
+    plt.fill_between(t, opened_cum, color='0.9')
+    plt.fill_between(t, np.cumsum(closed))
 
-    plt.xlim(min(t), max(t))
+    plt.xlim(min(t), due_date)
+    plt.ylim(0, max(opened_cum))
     plt.show()
 
 
