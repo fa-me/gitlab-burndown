@@ -1,186 +1,140 @@
-import sys, gitlab, collections, datetime, dateutil.parser, pickle
+import sys
+import gitlab
+import collections
+import datetime
+import dateutil.parser
+import pickle
 import numpy as np
 import matplotlib.pyplot as plt
 import matplotlib.cm as cm
 import scipy.interpolate as interpolate
 import scipy.signal as signal
 
-def dd_int():
-    return collections.defaultdict(int)
-    
-# hotpatch python-gitlab until a release includes c08c913
-if gitlab.__version__ == '0.15':
-    class Gitlab (gitlab.Gitlab):
-        def _raw_list(self, path, cls, extra_attrs={}, **kwargs):
-            params = extra_attrs.copy()
-            params.update(kwargs.copy())
-            get_all_results = kwargs.get('all', False)
-            r = self._raw_get(path, **params)
-            gitlab.raise_error_from_response(r, gitlab.GitlabListError)
-            for key in ['all', 'page', 'per_page', 'sudo', 'next_url']:
-                if key in params:
-                    del params[key]
-            params['_from_api'] = True
-            results = [cls(self, item, **params) for item in r.json() if item is not None]
-            if ('next' in r.links and 'url' in r.links['next'] and get_all_results is True):
-                args = kwargs.copy()
-                args['next_url'] = r.links['next']['url']
-                results.extend(self.list(cls, **args))
-            return results
-else:
-    Gitlab = gitlab.Gitlab
+import pandas as pd
 
-def main(gitlab_url = None, gitlab_secret = None, project = None, since = None, output = None):
 
-    if any([x is None for x in [gitlab_url, gitlab_secret, project]]):
-        sys.stderr.write("usage: python3 %s <gitlab_url> <gitlab_secret> <project> [since-date-iso-fmt] [output-file]\n" % sys.argv[0])
-        return 1
-    
-    all_points       = set()
-    milestone_issues = collections.defaultdict(dd_int)
-    milestone_names  = {}
-    milestone_start  = {}
-    most_recent      = None
-    
-    cache = None
-    
-    try:
-        with open('issue_cache.pickle', 'rb') as f:
-            cache = pickle.load(f)
-        all_points = cache['all_points']
-        milestone_issues = cache['milestone_issues']
-        milestone_names = cache['milestone_names']
-        milestone_start = cache['milestone_start']
-        most_recent = max(all_points)
-    except (IOError, EOFError):
-        pass
-    
-    gl = Gitlab(gitlab_url, gitlab_secret)
+def get_issues(gitlab_url, gitlab_secret, project, since):
+    gl = gitlab.Gitlab(gitlab_url, gitlab_secret)
     proj = gl.projects.get(project)
-    
+
     done = False
     page = 1
+
+    all_issues = []
+
     while not done:
-    
-        issues = proj.issues.list(order_by='created_at', sort='desc', page=page, per_page=20)
+        issues = proj.issues.list(order_by='created_at',
+                                  sort='desc',
+                                  page=page,
+                                  per_page=20)
         if len(issues) == 0:
             break
         page += 1
-        
-        for i in issues:
-        
-            # open time
-            open_time = i.created_at
-            
-            # close time
-            close_time = None
-            for note in i.notes.list(order_by='created_at', sort='asc', all=True):
-                if note.system and note.body.startswith('Status changed to closed'):
-                    close_time = note.created_at
-            
-            # convert times to datetime obj
-            open_time = dateutil.parser.parse(open_time)
-            if close_time is not None:
-                close_time = dateutil.parser.parse(close_time)
-            
-            # determine if we have caught up with the cache
-            if most_recent is not None and open_time <= most_recent:
-                done = True
-                break
-        
-            # resolve milestone
-            milestone = None, 'None'
-            if i.milestone is not None:
-                milestone = i.milestone['iid'], i.milestone['title']
-            if not milestone[0] in milestone_names:
-                milestone_names[milestone[0]] = milestone[1]
-            if milestone[0] not in milestone_start or open_time < milestone_start[milestone[0]]:
-                milestone_start[milestone[0]] = open_time
-            
-            # update deltas
-            milestone_issues[milestone[0]][open_time]  += 1
-            milestone_issues[milestone[0]][close_time] -= 1
-            all_points |= set([open_time, close_time])
-            
-    # Remove 'None' point, it will break everything
-    all_points -= set([None])
-    
-    # Save cache
-    with open('issue_cache.pickle', 'wb') as f:
-        cache = pickle.dump({
-            'milestone_issues': milestone_issues,
-            'all_points':       all_points,
-            'milestone_names':  milestone_names,
-            'milestone_start':  milestone_start
-        }, f)
-    
-    # Build x and y
-    x = sorted(all_points)
-    y = [
-        np.cumsum([   
-            float(v[t]) for t in x
-        ])
-        for k, v in sorted(milestone_issues.items(), key=lambda x: milestone_start[x[0]])
-    ]
-    
-    # Restrict domain
-    if since is not None:
-        since = dateutil.parser.parse(since)
-        x = [t for t in x if t >= since]
-        y = [
-            yy[-len(x):]
-            for yy in y
-        ]
-    
-    # Filter empty series
-    labels = [
-        v
-        for i, (k, v) in enumerate(sorted(
-            milestone_names.items(), key=lambda p: milestone_start[p[0]]
-        ))
-        if any(k != 0 for k in y[i])
-    ]
-    y = [
-        yy
-        for yy in y
-        if any(k != 0 for k in yy)
-    ]
 
-    # Smooth curve
-    x_rel = [(t - x[0]).total_seconds() for t in x]
-    xs_rel = np.linspace(x_rel[0], x_rel[-1], 250)
-    ys = [
-        signal.savgol_filter(
-            interpolate.interp1d(x_rel, yy, kind='slinear')(xs_rel),
-            51,
-            4
-        )
-        for yy in y
-    ]
-    xs = [x[0] + datetime.timedelta(seconds=t) for t in xs_rel]
-    
-    # Generate color map
-    cmap = cm.get_cmap('viridis')
-    c = [cmap(int(cmap.N*i/len(ys))) for i in range(len(ys))]
-    
-    # Truncate names
-    milestone_names = {
-        i: (n if len(n) < 16 else n[:13]+"...")
-        for i,n in milestone_names.items()
-    }
-    
-    # Generate plot
-    plt.figure(figsize=(10,4))
-    plt.stackplot(xs, *ys, labels=labels, colors=c, baseline='zero', edgecolor='none')
-    plt.legend(loc='upper center', shadow=True, ncol=3, fontsize='12')
-    plt.ylim(0, plt.ylim()[1]*1.25)
-    
-    if output is None:
-        plt.show()
+        all_issues += issues
+
+    return all_issues
+
+
+milestone_lookup = dict()
+
+
+def issue_to_dict(issue):
+    # open time
+    open_time = dateutil.parser.parse(issue.created_at)
+    close_time_raw = issue.attributes['closed_at']
+
+    if close_time_raw is not None:
+        close_time = dateutil.parser.parse(close_time_raw)
     else:
-        plt.savefig(output)
-        
-    return 0
+        close_time = None
+
+    # milestone
+    if issue.milestone is not None:
+        milestone_id = issue.milestone['iid']
+        milestone_lookup.update({milestone_id: {
+            'title': issue.milestone['title'],
+            'due_date': dateutil.parser.parse(issue.milestone['due_date'])
+        }})
+    else:
+        milestone_id = None
+
+    return dict({
+        'iid': issue.get_id(),
+        'open_time': open_time,
+        'close_time': close_time,
+        'milestone_id': milestone_id
+    })
+
+
+def issues_to_dataframe(issues):
+    return pd.DataFrame(map(issue_to_dict, issues))
+
+
+def get_timestamps(from_, to_, freq='D'):
+    return pd.date_range(from_, to_, freq=freq)
+
+
+def get_bracket_counter(df, col):
+    def in_time_bracket(lower, upper):
+        return np.count_nonzero(np.logical_and(df[col] > lower,
+                                               df[col] <= upper))
+    return in_time_bracket
+
+
+def get_due_date(df):
+    milestone_ids = set(df.milestone_id)
+    assert len(milestone_ids) == 1
+    milestone_id = milestone_ids.pop()
+    milestone = milestone_lookup[milestone_id]
+    due_date = milestone['due_date']
+    return due_date
+
+
+def accumulated_number_of_items(df, freq='D'):
+    earliest = df.open_time.min()
+
+    latest = max(df.open_time.max(), df.close_time.max())
+
+    timestamps = get_timestamps(earliest, latest, freq)
+    # count_tab = pd.DataFrame(columns=['no_closed', 'no_opened'],
+    #                          index=timestamps)
+
+    count_opened = get_bracket_counter(df, 'open_time')
+    count_closed = get_bracket_counter(df, 'close_time')
+
+    opened = [count_opened(a, b)
+              for a, b in zip(timestamps[:-1], timestamps[1:])]
+    closed = [count_closed(a, b)
+              for a, b in zip(timestamps[:-1], timestamps[1:])]
+
+    return timestamps[:-1], opened, closed
+
+
+def plot_data(df, freq='D'):
+    t, opened, closed = accumulated_number_of_items(df, freq)
+
+    opened_cum = np.cumsum(opened)
+
+    plt.figure()
+
+    due_date = get_due_date(df)
+    plt.plot([min(t), due_date], [0, opened_cum[-1]], '--', color='0.8')
+
+    plt.plot(t, opened_cum, 'o-')
+    plt.fill_between(t, np.cumsum(closed), 'o-')
+
+    plt.xlim(min(t), max(t))
+    plt.show()
+
+
+def main(gitlab_url=None, gitlab_secret=None, project=None, since=None):
+
+    issues = get_issues(gitlab_url, gitlab_secret, project, since)
+    data = issues_to_dataframe(issues)
+
+    plot_data(data, freq='H')
+
 
 if __name__ == "__main__":
-    sys.exit(main(*sys.argv[1:]))
+    pass
