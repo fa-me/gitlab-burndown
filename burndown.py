@@ -108,7 +108,7 @@ def accumulated_number_of_items(df, freq='D'):
     closed = [count_closed(a, b)
               for a, b in zip(timestamps[:-1], timestamps[1:])]
 
-    return timestamps[:-1], opened, closed
+    return timestamps[1:], opened, closed
 
 
 def plot_data(df, freq='D'):
