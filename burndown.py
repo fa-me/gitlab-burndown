@@ -84,7 +84,7 @@ def get_bracket_counter(df, col):
 
 def get_due_date(df):
     milestone_ids = set(df.milestone_id)
-    assert len(milestone_ids) == 1
+    
     milestone_id = milestone_ids.pop()
     milestone = milestone_lookup[milestone_id]
     due_date = milestone['due_date']
