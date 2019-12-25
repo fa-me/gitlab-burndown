@@ -72,7 +72,7 @@ def issues_to_dataframe(issues):
 
 
 def get_timestamps(from_, to_, freq='D'):
-    return pd.date_range(from_, to_, freq=freq)
+    return pd.date_range(from_, to_, freq=freq).tolist()
 
 
 def get_bracket_counter(df, col):
@@ -84,7 +84,7 @@ def get_bracket_counter(df, col):
 
 def get_due_date(df):
     milestone_ids = set(df.milestone_id)
-    
+
     milestone_id = milestone_ids.pop()
     milestone = milestone_lookup[milestone_id]
     due_date = milestone['due_date']
@@ -97,16 +97,18 @@ def accumulated_number_of_items(df, freq='D'):
     latest = max(df.open_time.max(), df.close_time.max())
 
     timestamps = get_timestamps(earliest, latest, freq)
-    # count_tab = pd.DataFrame(columns=['no_closed', 'no_opened'],
-    #                          index=timestamps)
+
+    timestamps.append(latest)  # assert latest is explicitly added
 
     count_opened = get_bracket_counter(df, 'open_time')
     count_closed = get_bracket_counter(df, 'close_time')
 
+    timestamp_brackets = list(zip(timestamps[:-1], timestamps[1:]))
+
     opened = [count_opened(a, b)
-              for a, b in zip(timestamps[:-1], timestamps[1:])]
+              for a, b in timestamp_brackets]
     closed = [count_closed(a, b)
-              for a, b in zip(timestamps[:-1], timestamps[1:])]
+              for a, b in timestamp_brackets]
 
     return timestamps[1:], opened, closed
 
@@ -123,6 +125,8 @@ def plot_data(df, freq='D'):
 
     plt.fill_between(t, opened_cum, color='0.9')
     plt.fill_between(t, np.cumsum(closed))
+
+    plt.plot(t, closed, 'ro')
 
     plt.xlim(min(t), due_date)
     plt.ylim(0, max(opened_cum))
