@@ -93,8 +93,12 @@ def get_due_date(df):
 
 def accumulated_number_of_items(df, freq='D'):
     earliest = df.open_time.min()
+    tz = earliest.tz
 
-    latest = max(df.open_time.max(), df.close_time.max())
+    now = pd.Timestamp.now(tz=tz)
+    latest = max(df.open_time.max(),
+                 df.close_time.max(),
+                 now)
 
     timestamps = get_timestamps(earliest, latest, freq)
 
