@@ -117,7 +117,7 @@ def accumulated_number_of_items(df, freq='D'):
     return timestamps[1:], opened, closed
 
 
-def plot_data(df, freq='D'):
+def plot_data(df, freq='D', title=None):
     t, opened, closed = accumulated_number_of_items(df, freq)
 
     opened_cum = np.cumsum(opened)
@@ -132,6 +132,9 @@ def plot_data(df, freq='D'):
 
     plt.plot(t, closed, 'ro')
 
+    if title is not None:
+        plt.title(title)
+
     plt.xlim(min(t), due_date)
     plt.ylim(0, max(opened_cum))
     plt.show()
@@ -142,7 +145,9 @@ def main(gitlab_url=None, gitlab_secret=None, project=None, since=None):
     issues = get_issues(gitlab_url, gitlab_secret, project, since)
     data = issues_to_dataframe(issues)
 
-    plot_data(data, freq='H')
+    for milestone_id, subdata in data.groupby('milestone_id'):
+        milestone_name = milestone_lookup[milestone_id]['title']
+        plot_data(subdata, freq='H', title=milestone_name)
 
 
 if __name__ == "__main__":
