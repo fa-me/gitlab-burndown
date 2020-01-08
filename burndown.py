@@ -135,7 +135,7 @@ def plot_data(df, freq='D', title=None):
     if title is not None:
         plt.title(title)
 
-    plt.xlim(min(t), due_date)
+    plt.xlim(min(t), max(t))
     plt.ylim(0, max(opened_cum))
     plt.show()
 
