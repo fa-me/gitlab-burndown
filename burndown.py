@@ -52,8 +52,15 @@ def issue_to_dict(issue):
     # milestone
     if issue.milestone is not None:
         milestone_id = issue.milestone['iid']
+
+        if issue.milestone['start_date'] is None:
+            ms_start_date = None
+        else:
+            ms_start_date = dateutil.parser.parse(issue.milestone['start_date'])
+
         milestone_lookup.update({milestone_id: {
             'title': issue.milestone['title'],
+            'start_date': ms_start_date,
             'due_date': dateutil.parser.parse(issue.milestone['due_date'])
         }})
     else:
@@ -82,13 +89,14 @@ def get_bracket_counter(df, col):
     return in_time_bracket
 
 
-def get_due_date(df):
+def get_start_due_date(df):
     milestone_ids = set(df.milestone_id)
 
     milestone_id = milestone_ids.pop()
     milestone = milestone_lookup[milestone_id]
+    start_date = milestone['start_date']
     due_date = milestone['due_date']
-    return due_date
+    return start_date, due_date
 
 
 def accumulated_number_of_items(df, freq='D'):
@@ -122,21 +130,23 @@ def plot_data(df, freq='D', title=None):
 
     opened_cum = np.cumsum(opened)
 
-    plt.figure()
+    plt.figure(figsize=(12,4))
 
-    due_date = get_due_date(df)
-    plt.plot([min(t), due_date], [0, opened_cum[-1]], '--', color='0.5')
+    start_date, due_date = get_start_due_date(df)
+    if start_date is None:
+        start_date = min(t)
+
+    plt.plot([start_date, due_date], [0, opened_cum[-1]], '--', color='0.5')
 
     plt.fill_between(t, opened_cum, color='0.9')
     plt.fill_between(t, np.cumsum(closed))
 
-    plt.plot(t, closed, 'ro')
-
     if title is not None:
         plt.title(title)
 
-    plt.xlim(min(t), max(t))
+    plt.xlim(min(t), max(t), due_date)
     plt.ylim(0, max(opened_cum))
+    plt.tight_layout()
     plt.show()
 
 
